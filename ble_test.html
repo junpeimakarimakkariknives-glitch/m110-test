@@ -43,9 +43,14 @@ document.getElementById("connect").onclick = async () => {
     server.disconnect();
 
   } catch (e) {
-    log.textContent +=
-      "エラー: " + e.name + "\n" + e.message;
-  }
+  log.textContent +=
+    "\nエラー詳細:\n" +
+    "型: " + typeof e + "\n" +
+    "内容: " + String(e) + "\n" +
+    "JSON: " + JSON.stringify(e) + "\n" +
+    "name: " + (e?.name ?? "なし") + "\n" +
+    "message: " + (e?.message ?? "なし");
+}
 };
 </script>
 </body>
