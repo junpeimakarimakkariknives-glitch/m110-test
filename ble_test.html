@@ -21,7 +21,7 @@ document.getElementById("connect").onclick = async () => {
       throw new Error("Web Bluetooth APIが利用できません");
     }
 
-  cconst device = await navigator.bluetooth.requestDevice({
+  const device = await navigator.bluetooth.requestDevice({
   filters: [{ services: [0xaf30] }],
   optionalServices: [0xff00]
 });
