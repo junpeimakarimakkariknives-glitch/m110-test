@@ -23,7 +23,9 @@ document.getElementById("connect").onclick = async () => {
     }
 
   const device = await navigator.bluetooth.requestDevice({
-  filters: [{ services: [0xaf30] }],
+  filters: [
+    { name: "Q199E49I0860257" }
+  ]
 });
 
     log.textContent += "検出: " + device.name + "\n";
