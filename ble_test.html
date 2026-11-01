@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M110 Bluetooth Test</title>
+</head>
+<body>
+<h2>M110 接続テスト</h2>
+<button id="connect">Bluetooth機器を検索</button>
+<pre id="log">待機中</pre>
+
+<script>
+const log = document.getElementById("log");
+
+document.getElementById("connect").onclick = async () => {
+  log.textContent = "検索開始\n";
+
+  try {
+    if (!navigator.bluetooth) {
+      throw new Error("Web Bluetooth APIが利用できません");
+    }
+
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [0xff00]
+    });
+
+    log.textContent += "検出: " + device.name + "\n";
+
+    const server = await device.gatt.connect();
+    log.textContent += "GATT接続成功\n";
+
+    const service = await server.getPrimaryService(0xff00);
+    log.textContent += "FF00サービス取得成功\n";
+
+    const characteristic =
+      await service.getCharacteristic(0xff02);
+
+    log.textContent += "FF02書込特性取得成功\n";
+    log.textContent += "テスト完了！";
+
+    server.disconnect();
+
+  } catch (e) {
+    log.textContent +=
+      "エラー: " + e.name + "\n" + e.message;
+  }
+};
+</script>
+</body>
+</html>
