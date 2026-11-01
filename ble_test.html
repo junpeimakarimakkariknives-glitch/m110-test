@@ -21,10 +21,12 @@ document.getElementById("connect").onclick = async () => {
       throw new Error("Web Bluetooth APIが利用できません");
     }
 
-    const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [0xff00]
-    });
+  const device = await navigator.bluetooth.requestDevice({
+  filters: [
+    { namePrefix: "M110" }
+  ],
+  optionalServices: [0xff00]
+});
 
     log.textContent += "検出: " + device.name + "\n";
 
