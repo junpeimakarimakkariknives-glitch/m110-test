@@ -22,7 +22,7 @@ document.getElementById("connect").onclick = async () => {
     }
 
   const device = await navigator.bluetooth.requestDevice({
-  acceptAllDevices: true,
+  filters: [{ namePrefix: "M110" }],
   optionalServices: [0xff00]
 });
 
