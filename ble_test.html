@@ -153,13 +153,45 @@ document.getElementById("connect").onclick = async () => {
     message("FF00サービス取得成功");
 
     characteristic =
-      await service.getCharacteristic(0xff02);
-    message("FF02書込特性取得成功");
+  await service.getCharacteristic(0xff02);
+message("FF02書込特性取得成功");
 
-    document.getElementById("print").disabled = false;
+// FF03通知特性を取得
+const notifyCharacteristic =
+  await service.getCharacteristic(0xff03);
 
-    message("印刷準備完了！");
+message("FF03通知特性取得成功");
 
+// プリンタから通知が来たときの処理
+notifyCharacteristic.addEventListener(
+  "characteristicvaluechanged",
+  event => {
+    const value = event.target.value;
+
+    const bytes = new Uint8Array(
+      value.buffer,
+      value.byteOffset,
+      value.byteLength
+    );
+
+    const hex = Array.from(bytes)
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join(" ");
+
+    message("M110から受信: " + hex);
+ 　　 }
+　　);
+
+　　// 通知受信を開始
+　　await notifyCharacteristic.startNotifications();
+
+　　message("FF03通知受信開始成功");
+
+　　document.getElementById("print").disabled = false;
+
+　　message("印刷準備完了！");
+
+        
   } catch (e) {
     message("接続エラー: " + String(e));
   }
