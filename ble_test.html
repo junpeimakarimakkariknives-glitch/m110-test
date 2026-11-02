@@ -31,7 +31,7 @@ canvas {
 </head>
 <body>
 
-<h2>M110 印刷テスト1</h2>
+<h2>M110 印刷テスト2</h2>
 
 <button id="connect">
   ① Bluetooth機器を検索・接続
@@ -179,22 +179,26 @@ document.getElementById("print").onclick = async () => {
 
     const raster = rasterData();
 
-    // 印刷速度
-    await send(new Uint8Array([
-      0x1b, 0x4e, 0x0d, 0x03
-    ]));
+　　// 印刷速度
+　　await send(new Uint8Array([
+　　  0x1b, 0x4e, 0x0d, 0x05
+　　]));
 
-    // 印字濃度
-    await send(new Uint8Array([
-      0x1b, 0x4e, 0x04, 0x08
-    ]));
+　　await sleep(100);
 
-    // 連続紙モード
-    await send(new Uint8Array([
-      0x1f, 0x11, 0x0b
-    ]));
+　　// 印字濃度
+　　await send(new Uint8Array([
+　　  0x1b, 0x4e, 0x04, 0x08
+　　]));
 
-    await sleep(100);
+　　await sleep(100);
+
+　　// 連続紙モード
+　　await send(new Uint8Array([
+　　  0x1f, 0x11, 0x0b
+　　]));
+
+　　await sleep(100);
 
     // ラスター画像ヘッダ
     // 48 bytes/line, 160 lines
