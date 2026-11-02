@@ -1,20 +1,135 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>M110 Bluetooth Test</title>
+<meta name="viewport"
+      content="width=device-width,initial-scale=1">
+<title>M110 印刷テスト</title>
+<style>
+body {
+  font-family: sans-serif;
+  padding: 18px;
+}
+button {
+  font-size: 20px;
+  padding: 15px;
+  margin: 8px 0;
+  width: 100%;
+}
+pre {
+  white-space: pre-wrap;
+  background: #eee;
+  padding: 12px;
+}
+canvas {
+  width: 100%;
+  max-width: 384px;
+  border: 1px solid #aaa;
+}
+</style>
 </head>
 <body>
-<h2>M110 接続テスト</h2>
-<button id="connect">Bluetooth機器を検索</button>
+
+<h2>M110 印刷テスト</h2>
+
+<button id="connect">
+  ① Bluetooth機器を検索・接続
+</button>
+
+<button id="print" disabled>
+  ② テスト印刷
+</button>
+
+<h3>印刷プレビュー</h3>
+<canvas id="paper" width="384" height="160"></canvas>
+
+<h3>通信ログ</h3>
 <pre id="log">待機中</pre>
 
 <script>
 const log = document.getElementById("log");
+const canvas = document.getElementById("paper");
+const ctx = canvas.getContext("2d");
 
+let device = null;
+let server = null;
+let characteristic = null;
+
+const sleep = ms =>
+  new Promise(resolve => setTimeout(resolve, ms));
+
+function message(s) {
+  log.textContent += s + "\n";
+}
+
+// 印刷する画像を作る
+function drawReceipt() {
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, 384, 160);
+
+  ctx.fillStyle = "black";
+  ctx.textAlign = "center";
+
+  ctx.font = "bold 32px sans-serif";
+  ctx.fillText("MAKKARI KNIVES", 192, 45);
+
+  ctx.fillRect(20, 60, 344, 2);
+
+  ctx.font = "24px sans-serif";
+  ctx.fillText("BLUETOOTH TEST", 192, 100);
+
+  ctx.font = "22px sans-serif";
+  ctx.fillText("1234567890", 192, 135);
+}
+
+// Canvasを1bit画像データへ変換
+function rasterData() {
+  const w = canvas.width;
+  const h = canvas.height;
+
+  const pixels =
+    ctx.getImageData(0, 0, w, h).data;
+
+  const bytes = new Uint8Array(w * h / 8);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+
+      const gray =
+        0.299 * pixels[i] +
+        0.587 * pixels[i + 1] +
+        0.114 * pixels[i + 2];
+
+      if (gray < 128) {
+        const index = y * (w / 8) + (x >> 3);
+        bytes[index] |= 0x80 >> (x & 7);
+      }
+    }
+  }
+
+  return bytes;
+}
+
+async function send(data) {
+  const CHUNK = 128;
+
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const part = data.slice(i, i + CHUNK);
+
+    if (characteristic.properties.writeWithoutResponse) {
+      await characteristic.writeValueWithoutResponse(part);
+    } else {
+      await characteristic.writeValueWithResponse(part);
+    }
+
+    await sleep(40);
+  }
+}
+
+// 接続
 document.getElementById("connect").onclick = async () => {
-  alert("ボタンのクリックは正常2");
   log.textContent = "検索開始\n";
 
   try {
@@ -22,38 +137,102 @@ document.getElementById("connect").onclick = async () => {
       throw new Error("Web Bluetooth APIが利用できません");
     }
 
-  const device = await navigator.bluetooth.requestDevice({
-  filters: [
-    { name: "Q199E49I0860257" }
-  ]
-});
+    device = await navigator.bluetooth.requestDevice({
+      filters: [
+        { name: "Q199E49I0860257" }
+      ]
+    });
 
-    log.textContent += "検出: " + device.name + "\n";
+    message("検出: " + device.name);
 
-    const server = await device.gatt.connect();
-    log.textContent += "GATT接続成功\n";
+    server = await device.gatt.connect();
+    message("GATT接続成功");
 
-    const service = await server.getPrimaryService(0xff00);
-    log.textContent += "FF00サービス取得成功\n";
+    const service =
+      await server.getPrimaryService(0xff00);
+    message("FF00サービス取得成功");
 
-    const characteristic =
+    characteristic =
       await service.getCharacteristic(0xff02);
+    message("FF02書込特性取得成功");
 
-    log.textContent += "FF02書込特性取得成功\n";
-    log.textContent += "テスト完了！";
+    document.getElementById("print").disabled = false;
 
-    server.disconnect();
+    message("印刷準備完了！");
 
   } catch (e) {
-  log.textContent +=
-    "\nエラー詳細:\n" +
-    "型: " + typeof e + "\n" +
-    "内容: " + String(e) + "\n" +
-    "JSON: " + JSON.stringify(e) + "\n" +
-    "name: " + (e?.name ?? "なし") + "\n" +
-    "message: " + (e?.message ?? "なし");
-}
+    message("接続エラー: " + String(e));
+  }
 };
+
+// 印刷
+document.getElementById("print").onclick = async () => {
+  const button = document.getElementById("print");
+  button.disabled = true;
+
+  try {
+    if (!server || !server.connected) {
+      throw new Error("Bluetoothが切断されています");
+    }
+
+    message("印刷開始");
+
+    const raster = rasterData();
+
+    // 印刷速度
+    await send(new Uint8Array([
+      0x1b, 0x4e, 0x0d, 0x03
+    ]));
+
+    // 印字濃度
+    await send(new Uint8Array([
+      0x1b, 0x4e, 0x04, 0x08
+    ]));
+
+    // 連続紙モード
+    await send(new Uint8Array([
+      0x1f, 0x11, 0x0b
+    ]));
+
+    await sleep(100);
+
+    // ラスター画像ヘッダ
+    // 48 bytes/line, 160 lines
+    const header = new Uint8Array([
+      0x1d, 0x76, 0x30, 0x00,
+      0x30, 0x00,
+      0xa0, 0x00
+    ]);
+
+    await send(header);
+    await send(raster);
+
+    message("画像データ送信完了");
+
+    await sleep(300);
+
+    // 印刷終了
+    await send(new Uint8Array([
+      0x1f, 0xf0, 0x05, 0x00
+    ]));
+
+    await sleep(100);
+
+    await send(new Uint8Array([
+      0x1f, 0xf0, 0x03, 0x00
+    ]));
+
+    message("全コマンド送信完了！");
+    message("実際に印刷されたか確認してください");
+
+  } catch (e) {
+    message("印刷エラー: " + String(e));
+  } finally {
+    button.disabled = false;
+  }
+};
+
+drawReceipt();
 </script>
 </body>
 </html>
