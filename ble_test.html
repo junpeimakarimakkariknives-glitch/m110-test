@@ -213,14 +213,11 @@ document.getElementById("print").onclick = async () => {
 
     // 印刷終了
     await send(new Uint8Array([
-      0x1f, 0xf0, 0x05, 0x00
-    ]));
+          0x1f, 0xf0, 0x05, 0x00,
+          0x1f, 0xf0, 0x03, 0x00
+　　]));
 
-    await sleep(100);
-
-    await send(new Uint8Array([
-      0x1f, 0xf0, 0x03, 0x00
-    ]));
+　　await sleep(500);
 
     message("全コマンド送信完了！");
     message("実際に印刷されたか確認してください");
