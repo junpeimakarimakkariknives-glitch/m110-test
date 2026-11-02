@@ -1,272 +1,156 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport"
-      content="width=device-width,initial-scale=1">
-<title>M110 印刷テスト</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Makkari M110 領収書テスト</title>
 <style>
-body {
-  font-family: sans-serif;
-  padding: 18px;
-}
-button {
-  font-size: 20px;
-  padding: 15px;
-  margin: 8px 0;
-  width: 100%;
-}
-pre {
-  white-space: pre-wrap;
-  background: #eee;
-  padding: 12px;
-}
-canvas {
-  width: 100%;
-  max-width: 384px;
-  border: 1px solid #aaa;
-}
+body{font-family:-apple-system,BlinkMacSystemFont,'Noto Sans JP',sans-serif;padding:18px;max-width:700px;margin:auto;background:#fafafa;color:#171717}
+button{font-size:19px;padding:15px;width:100%;margin:7px 0;border:0;border-radius:10px;background:#e5e5e5;color:#111}
+button:disabled{opacity:.45}.primary{background:#171717;color:#fff}
+input{font-size:18px;padding:10px;width:100%;box-sizing:border-box;margin:5px 0 12px;border:1px solid #bbb;border-radius:6px}
+label{display:block;font-weight:bold}canvas{width:100%;max-width:384px;border:1px solid #aaa;background:white;image-rendering:auto}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:12px;max-height:250px;overflow:auto}
+.note{font-size:13px;color:#555}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.panel{background:white;padding:14px;border-radius:12px;margin:14px 0}
 </style>
 </head>
 <body>
-
-<h2>M110 印刷テスト3</h2>
-
-<button id="connect">
-  ① Bluetooth機器を検索・接続
-</button>
-
-<button id="print" disabled>
-  ② テスト印刷
-</button>
-
-<h3>印刷プレビュー</h3>
-<canvas id="paper" width="384" height="160"></canvas>
-
-<h3>通信ログ</h3>
-<pre id="log">待機中</pre>
-
+<h2>M110 領収書印刷テスト</h2>
+<p class="note">GitHub Pages / Bluefy 用。BASEの在庫は変更しません。</p>
+<div class="panel">
+<label>商品名</label><input id="product" value="クナイ MOLLE">
+<div class="grid"><div><label>税込単価（円）</label><input id="price" type="number" min="0" step="1" value="19800"></div><div><label>数量</label><input id="qty" type="number" min="1" step="1" value="2"></div></div>
+<div class="grid"><div><label>価格表示</label><select id="taxmode" style="font-size:18px;padding:10px;width:100%;margin:5px 0 12px"><option value="incl">税込</option><option value="excl">税抜（10%）</option></select></div><div><label>割引率（%）</label><input id="discount" type="number" min="0" max="100" step="1" value="10"></div></div>
+<button id="preview">領収書プレビュー更新</button>
+</div>
+<button id="connect">① Bluetooth機器を検索・接続</button>
+<button id="print" class="primary" disabled>② 領収書を印刷</button>
+<h3>印刷プレビュー（384ドット幅）</h3>
+<canvas id="paper" width="384" height="500"></canvas>
+<h3>通信ログ</h3><pre id="log">待機中\n</pre>
 <script>
-const log = document.getElementById("log");
-const canvas = document.getElementById("paper");
-const ctx = canvas.getContext("2d");
-
-let device = null;
-let server = null;
-let characteristic = null;
-
-const sleep = ms =>
-  new Promise(resolve => setTimeout(resolve, ms));
-
-function message(s) {
-  log.textContent += s + "\n";
+const log = document.getElementById('log');
+const canvas = document.getElementById('paper');
+const ctx = canvas.getContext('2d', {willReadFrequently:true});
+const sleep = ms => new Promise(resolve => setTimeout(resolve,ms));
+let device=null, server=null, characteristic=null, notifyCharacteristic=null;
+const $ = id => document.getElementById(id);
+function message(s){log.textContent += s+'\n';log.scrollTop=log.scrollHeight;}
+function yen(n){return '¥'+Math.round(n).toLocaleString('ja-JP');}
+function calculate(){
+  const product=$('product').value.trim() || '商品';
+  const base=Math.max(0,Math.floor(Number($('price').value)||0));
+  const qty=Math.max(1,Math.floor(Number($('qty').value)||1));
+  const discount=Math.max(0,Math.min(100,Number($('discount').value)||0));
+  const mode=$('taxmode').value;
+  const unit=mode==='excl'?Math.round(base/1.1):base;
+  const subtotal=unit*qty;
+  const discountAmount=Math.round(subtotal*discount/100);
+  return {product,base,qty,discount,mode,unit,subtotal,discountAmount,total:subtotal-discountAmount};
 }
-
-// 印刷する画像を作る
-function drawReceipt() {
-  ctx.fillStyle = "white";
-  ctx.fillRect(0, 0, 384, 160);
-
-  ctx.fillStyle = "black";
-  ctx.textAlign = "center";
-
-  ctx.font = "bold 32px sans-serif";
-  ctx.fillText("MAKKARI KNIVES", 192, 45);
-
-  ctx.fillRect(20, 60, 344, 2);
-
-  ctx.font = "24px sans-serif";
-  ctx.fillText("BLUETOOTH TEST", 192, 100);
-
-  ctx.font = "22px sans-serif";
-  ctx.fillText("1234567890", 192, 135);
-}
-
-// Canvasを1bit画像データへ変換
-function rasterData() {
-  const w = canvas.width;
-  const h = canvas.height;
-
-  const pixels =
-    ctx.getImageData(0, 0, w, h).data;
-
-  const bytes = new Uint8Array(w * h / 8);
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-
-      const gray =
-        0.299 * pixels[i] +
-        0.587 * pixels[i + 1] +
-        0.114 * pixels[i + 2];
-
-      if (gray < 128) {
-        const index = y * (w / 8) + (x >> 3);
-        bytes[index] |= 0x80 >> (x & 7);
-      }
-    }
+function wrapJapanese(text,maxWidth,font){
+  ctx.font=font;
+  const lines=[];let line='';
+  for(const char of text){
+    if(line && ctx.measureText(line+char).width>maxWidth){lines.push(line);line=char;}else line+=char;
   }
-
+  if(line)lines.push(line);
+  return lines.length?lines:[''];
+}
+function drawReceipt(){
+  const d=calculate();
+  const now=new Date();
+  const date=now.getFullYear()+'/'+String(now.getMonth()+1).padStart(2,'0')+'/'+String(now.getDate()).padStart(2,'0')+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const nameLines=wrapJapanese(d.product,340,'bold 24px sans-serif');
+  const height=440+nameLines.length*34;
+  canvas.height=height;
+  ctx.fillStyle='white';ctx.fillRect(0,0,384,height);
+  ctx.fillStyle='black';ctx.textBaseline='top';
+  const txt=(s,x,y,font='22px sans-serif',align='left')=>{ctx.font=font;ctx.textAlign=align;ctx.fillText(s,x,y);};
+  const rule=y=>ctx.fillRect(16,y,352,2);
+  txt('MAKKARI KNIVES',192,18,'bold 29px sans-serif','center');
+  txt('領 収 書',192,65,'bold 30px sans-serif','center');
+  txt(date,192,112,'19px sans-serif','center');
+  rule(145);
+  let y=164;
+  for(const line of nameLines){txt(line,18,y,'bold 24px sans-serif');y+=34;}
+  txt(`${yen(d.unit)} × ${d.qty}点`,18,y,'22px sans-serif');y+=38;
+  txt('小計',18,y);txt(yen(d.subtotal),366,y,'22px sans-serif','right');y+=35;
+  txt(`割引 (${d.discount}%)`,18,y);txt('-'+yen(d.discountAmount),366,y,'22px sans-serif','right');y+=42;
+  rule(y);y+=17;
+  txt('お会計',18,y,'bold 26px sans-serif');txt(yen(d.total),366,y,'bold 30px sans-serif','right');y+=52;
+  txt(d.mode==='incl'?'税込価格で計算':'税抜価格で計算（税再加算なし）',192,y,'17px sans-serif','center');y+=35;
+  rule(y);y+=20;
+  txt('ありがとうございました',192,y,'21px sans-serif','center');
+  return d;
+}
+function rasterData(){
+  const w=canvas.width,h=canvas.height;
+  const pixels=ctx.getImageData(0,0,w,h).data;
+  const bytes=new Uint8Array(w*h/8);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const i=(y*w+x)*4;
+    const gray=.299*pixels[i]+.587*pixels[i+1]+.114*pixels[i+2];
+    if(gray<128)bytes[y*(w/8)+(x>>3)]|=0x80>>(x&7);
+  }
   return bytes;
 }
-
-async function send(data) {
-  const CHUNK = 128;
-
-  for (let i = 0; i < data.length; i += CHUNK) {
-    const part = data.slice(i, i + CHUNK);
-
-    if (characteristic.properties.writeWithoutResponse) {
+async function send(data){
+  const CHUNK=128;
+  for(let i=0;i<data.length;i+=CHUNK){
+    const part=data.slice(i,i+CHUNK);
+    if(characteristic.properties.writeWithoutResponse){
       await characteristic.writeValueWithoutResponse(part);
-    } else {
+    }else{
       await characteristic.writeValueWithResponse(part);
     }
-
     await sleep(40);
   }
 }
-
-// 接続
-document.getElementById("connect").onclick = async () => {
-  log.textContent = "検索開始\n";
-
-  try {
-    if (!navigator.bluetooth) {
-      throw new Error("Web Bluetooth APIが利用できません");
-    }
-
-    device = await navigator.bluetooth.requestDevice({
-      filters: [
-        { name: "Q199E49I0860257" }
-      ]
+$('preview').onclick=()=>{drawReceipt();message('プレビュー更新');};
+$('connect').onclick=async()=>{
+  log.textContent='検索開始\n';
+  try{
+    if(!navigator.bluetooth)throw new Error('Web Bluetooth APIが利用できません');
+    device=await navigator.bluetooth.requestDevice({filters:[{name:'Q199E49I0860257'}]});
+    message('検出: '+device.name);
+    server=await device.gatt.connect();message('GATT接続成功');
+    const service=await server.getPrimaryService(0xff00);message('FF00サービス取得成功');
+    characteristic=await service.getCharacteristic(0xff02);message('FF02書込特性取得成功');
+    notifyCharacteristic=await service.getCharacteristic(0xff03);message('FF03通知特性取得成功');
+    notifyCharacteristic.addEventListener('characteristicvaluechanged',event=>{
+      const value=event.target.value;
+      const bytes=new Uint8Array(value.buffer,value.byteOffset,value.byteLength);
+      message('M110から受信: '+Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join(' '));
     });
-
-    message("検出: " + device.name);
-
-    server = await device.gatt.connect();
-    message("GATT接続成功");
-
-    const service =
-      await server.getPrimaryService(0xff00);
-    message("FF00サービス取得成功");
-
-    characteristic =
-  await service.getCharacteristic(0xff02);
-message("FF02書込特性取得成功");
-
-// FF03通知特性を取得
-const notifyCharacteristic =
-  await service.getCharacteristic(0xff03);
-
-message("FF03通知特性取得成功");
-
-// プリンタから通知が来たときの処理
-notifyCharacteristic.addEventListener(
-  "characteristicvaluechanged",
-  event => {
-    const value = event.target.value;
-
-    const bytes = new Uint8Array(
-      value.buffer,
-      value.byteOffset,
-      value.byteLength
-    );
-
-    const hex = Array.from(bytes)
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join(" ");
-
-    message("M110から受信: " + hex);
- 　　 }
-　　);
-
-　　// 通知受信を開始
-　　await notifyCharacteristic.startNotifications();
-
-　　message("FF03通知受信開始成功");
-
-　　document.getElementById("print").disabled = false;
-
-　　message("印刷準備完了！");
-
-        
-  } catch (e) {
-    message("接続エラー: " + String(e));
-  }
+    await notifyCharacteristic.startNotifications();message('FF03通知受信開始成功');
+    $('print').disabled=false;message('印刷準備完了！');
+    device.addEventListener('gattserverdisconnected',()=>{$('print').disabled=true;message('Bluetooth切断');});
+  }catch(e){message('接続エラー: '+String(e));}
 };
-
-// 印刷
-document.getElementById("print").onclick = async () => {
-  const button = document.getElementById("print");
-  button.disabled = true;
-
-  try {
-    if (!server || !server.connected) {
-      throw new Error("Bluetoothが切断されています");
-    }
-
-    message("印刷開始");
-
+$('print').onclick=async()=>{
+  $('print').disabled=true;
+  try{
+    if(!server||!server.connected)throw new Error('Bluetoothが切断されています');
+    const d=drawReceipt();
+    message('印刷開始 '+d.product+' / '+yen(d.total));
     await sleep(500);
-        
-    const raster = rasterData();
-
-　　// 印刷速度
-　　await send(new Uint8Array([
-　　  0x1b, 0x4e, 0x0d, 0x05
-　　]));
-
-　　await sleep(100);
-
-　　// 印字濃度
-　　await send(new Uint8Array([
-　　  0x1b, 0x4e, 0x04, 0x08
-　　]));
-
-　　await sleep(100);
-
-　　// 連続紙モード
-　　await send(new Uint8Array([
-　　  0x1f, 0x11, 0x0b
-　　]));
-
-　　await sleep(100);
-
-    // ラスター画像ヘッダ
-    // 48 bytes/line, 160 lines
-    const header = new Uint8Array([
-      0x1d, 0x76, 0x30, 0x00,
-      0x30, 0x00,
-      0xa0, 0x00
-    ]);
-
-    await send(header);
-    await send(raster);
-
-    message("画像データ送信完了");
-
+    const raster=rasterData();
+    // 印刷成功時のコマンド順序・送信間隔を維持
+    await send(new Uint8Array([0x1b,0x4e,0x0d,0x05]));await sleep(100);
+    await send(new Uint8Array([0x1b,0x4e,0x04,0x08]));await sleep(100);
+    await send(new Uint8Array([0x1f,0x11,0x0b]));await sleep(100);
+    const h=canvas.height;
+    const header=new Uint8Array([0x1d,0x76,0x30,0x00,0x30,0x00,h&0xff,(h>>8)&0xff]);
+    await send(header);await send(raster);
+    message('画像データ送信完了 ('+raster.length+'バイト)');
     await sleep(300);
-
-    // 印刷終了
-    await send(new Uint8Array([
-          0x1f, 0xf0, 0x05, 0x00,
-          0x1f, 0xf0, 0x03, 0x00
-　　]));
-
-　　await sleep(500);
-
-    message("全コマンド送信完了！");
-    message("実際に印刷されたか確認してください");
-
-  } catch (e) {
-    message("印刷エラー: " + String(e));
-  } finally {
-    button.disabled = false;
-  }
+    await send(new Uint8Array([0x1f,0xf0,0x05,0x00,0x1f,0xf0,0x03,0x00]));
+    await sleep(500);
+    message('全コマンド送信完了！実際の印刷を確認してください');
+  }catch(e){message('印刷エラー: '+String(e));}
+  finally{$('print').disabled=!(server&&server.connected);}
 };
-
 drawReceipt();
 </script>
 </body>
